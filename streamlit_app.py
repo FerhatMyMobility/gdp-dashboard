@@ -1,151 +1,57 @@
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+import os
+from datetime import datetime
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+def search_files_without_phrase_by_date(directory, phrase, target_date):
+    # Liste pour stocker les fichiers ne contenant pas la phrase
+    files_without_phrase = []
+    total_files_checked = 0  # Compteur de fichiers consultés
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+    for filename in os.listdir(directory):
+        if filename.endswith('.log'):  # Vérifie les fichiers .log
+            file_path = os.path.join(directory, filename)
+            modification_time = os.path.getmtime(file_path)
+            modification_date = datetime.fromtimestamp(modification_time).date()
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+            if modification_date == target_date:
+                total_files_checked += 1
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                    content = file.read()
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+                if phrase not in content:
+                    files_without_phrase.append(filename)
+    
+    return files_without_phrase, total_files_checked
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# Interface utilisateur avec Streamlit
+st.title('Recherche de fichiers modifiés sans phrase spécifique')
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# Sélection du répertoire
+directory = st.text_input('Chemin du répertoire', value=r'C:\Chemin\Vers\Dossier')
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+# Phrase à chercher
+phrase_to_search = st.text_input('Phrase à rechercher', 'Fermeture du journal')
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# Date cible (AAA-MM-JJ)
+target_date_str = st.text_input('Date cible (AAAA-MM-JJ)', '2024-10-22')
 
-    return gdp_df
+# Bouton pour lancer la recherche
+if st.button('Lancer la recherche'):
+    if directory and phrase_to_search and target_date_str:
+        try:
+            target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            # Appel de la fonction de recherche
+            files_without_phrase, total_files_checked = search_files_without_phrase_by_date(directory, phrase_to_search, target_date)
 
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+            # Affichage des résultats
+            st.write(f'Nombre total de fichiers consultés : {total_files_checked}')
+            if files_without_phrase:
+                st.write('Fichiers ne contenant pas la phrase :')
+                for file in files_without_phrase:
+                    st.write(file)
+            else:
+                st.write(f'Tous les fichiers contiennent la phrase "{phrase_to_search}".')
+        except ValueError:
+            st.error("Le format de la date est invalide. Utilisez AAAA-MM-JJ.")
+    else:
+        st.warning('Veuillez remplir tous les champs.')
